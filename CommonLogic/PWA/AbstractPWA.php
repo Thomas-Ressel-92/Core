@@ -20,6 +20,7 @@ use exface\Core\Interfaces\DataSources\DataTransactionInterface;
 use exface\Core\Interfaces\PWA\PWADatasetInterface;
 use exface\Core\Interfaces\Widgets\iUseInputWidget;
 use exface\Core\Interfaces\Widgets\iTriggerAction;
+use exface\Core\Widgets\Button;
 use exface\Core\Widgets\Data;
 use exface\Core\Widgets\InputComboTable;
 use exface\Core\Interfaces\Widgets\iUseData;

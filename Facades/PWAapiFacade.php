@@ -6,7 +6,9 @@ use Psr\Http\Message\ResponseInterface;
 use exface\Core\DataTypes\StringDataType;
 use GuzzleHttp\Psr7\Response;
 use exface\Core\Factories\DataSheetFactory;
+use exface\Core\Factories\MetaObjectFactory;
 use exface\Core\DataTypes\ComparatorDataType;
+use exface\Core\DataTypes\DateTimeDataType;
 use exface\Core\DataTypes\SortingDirectionsDataType;
 use exface\Core\Interfaces\DataSheets\DataSheetInterface;
 use exface\Core\Exceptions\Facades\FacadeRoutingError;
@@ -23,7 +25,8 @@ use exface\Core\Exceptions\Facades\HttpBadRequestError;
  * 
  * ## Routes
  * 
- * - `api/pwa/<pwaUrl>/data?dataset_uid=<dataSetUid>`
+ * - `api/pwa/<pwaUrl>/data?dataset=<dataSetUid>`
+ * - `api/pwa/<pwaUrl>/data?dataset=<dataSetUid>$incr=<incrementValue>`
  * - `api/pwa/action/ui5/offline/...`
  * - `api/pwa/errors?deviceId=<deviceId>`
  * 
@@ -85,19 +88,19 @@ class PWAapiFacade extends HttpTaskFacade
                         'uid' => $dataSet->getUid(),
                         'object_alias' => $dataSet->getMetaObject()->getAliasWithNamespace(),
                         'object_name' => $dataSet->getMetaObject()->getName(),
-                        'url' => $this->buildUrlToGetOfflineData($dataSet)
+                        'url' => $this->buildUrlToGetOfflineData($dataSet, $pwa)
                     ];
                 }
                 $headers = array_merge($headers, ['Content-Type' => 'application/json']);
                 return new Response(200, $headers, JsonDataType::encodeJson($result));
 
             case $route === self::ROUTE_DATA:
-                // Check if array contains DataSetUid, if not, set dataSetUid to old routePath
-                // api/pwa/<pwaUrl>/data?dataSetUid=<dataSetUid>
+                // Check if query params contains DataSetUid, if not set dataSetUid to old routePath
                 if (array_key_exists("dataset", $request->getQueryParams())) {
+                    // new: api/pwa/<pwaUrl>/data?dataSetUid=<dataSetUid>
                     $dataSetUid = $request->getQueryParams()['dataset'];
                 } else {
-                    // api/pwa/<pwaUrl>/data/<dataSetUid>
+                    // old: api/pwa/<pwaUrl>/data/<dataSetUid>
                     $dataSetUid = $routePath;
                 }
 
@@ -119,16 +122,37 @@ class PWAapiFacade extends HttpTaskFacade
                 ]);
 
                 try {
-                    $ds = $pwa->getDataset($dataSetUid)->readData();
+                    $dataSet = $pwa->getDataset($dataSetUid);
+                    $ds = $dataSet->readData();
+                    // Current because it is updated in readData method
+                    $currentReadIncrementValue = ($dataSet->isIncremental() ? $dataSet->getIncrementValueOfLastRead() : null);
                     $result = [
                         'uid' => $dataSetUid,
                         'status' => 'fresh',
                         'uid_column_name' => ($ds->hasUidColumn() ? $ds->getUidColumn()->getName() : null),
                         'username' => $this->getWorkbench()->getSecurity()->getAuthenticatedToken()->getUsername(),
-                        'version' => $pwa->getVersion()
+                        'version' => $pwa->getVersion(),
+                        'increment_column_name' => ($dataSet->isIncremental() ? $ds->getColumns()->getByAttribute($dataSet->getIncrementAttribute())->getName() : null),
+                        'increment_value' => $currentReadIncrementValue
                         
                     ];
                     $result = array_merge($result, $ds->exportUxonObject()->toArray());
+                    
+                    // Filter resulting rows based on "incr" query parameter (last read before current readData call) if it is set and $currentReadIncrementValue
+                    if (array_key_exists("incr", $request->getQueryParams())) {
+                        $incr = $request->getQueryParams()['incr'];
+                        $filteredRowArray = [];
+                        foreach($result["rows"] as $rowElement) {
+                            // usually "ZeitAend"
+                            $incrementAttributeAlias = $dataSet->getIncrementAttribute()->getAlias();
+                            // Checks if incrementValue is within query parameter "incr" and $currentReadIncrementValue
+                            if ($rowElement[$incrementAttributeAlias] >= $incr && $rowElement[$incrementAttributeAlias] <= $currentReadIncrementValue) {
+                                array_push($filteredRowArray, $rowElement);
+                            }
+                        }
+                        $result["rows"] = $filteredRowArray;
+                    }
+
                 } catch (PWADatasetNotFoundError $e) {
                     $this->getWorkbench()->getLogger()->logException($e, LoggerInterface::DEBUG);
                     return new Response(404, $headers);
@@ -137,12 +161,12 @@ class PWAapiFacade extends HttpTaskFacade
                 return new Response(200, $headers, JsonDataType::encodeJson($result));
                 
             case $pwaUrl === self::ROUTE_ERRORS:
-                // Check if url parameter deviceId is set, if not, set deviceId to old routePath
-                // api/pwa/errors?deviceId=<deviceId>
+                // Check if url parameter deviceId is set, if not set deviceId to old route
                 if (array_key_exists("deviceId", $request->getQueryParams())) {
+                    // new: api/pwa/errors?deviceId=<deviceId>
                     $deviceId = $request->getQueryParams()['deviceId'];
                 } else {
-                    // api/pwa/errors/<deviceId>
+                    // old: api/pwa/errors/<deviceId>
                     $deviceId = $route;
                 }
                 
@@ -199,16 +223,18 @@ class PWAapiFacade extends HttpTaskFacade
         $ds->dataRead();
         return $ds;
     }
-    
+
     /**
      * New formatting of routes
      * api/pwa/<pwaUrl>/data?dataset_uid=<dataSetUid>
      * @param PWADatasetInterface $dataSet
      * @return string
      */
-    protected function buildUrlToGetOfflineData(PWADatasetInterface $dataSet) : string
+    protected function buildUrlToGetOfflineData(PWADatasetInterface $dataSet, $pwa) : string
     {
-        return $this->buildUrlToFacade(true) . "/{$dataSet->getPWA()->getUrl()}/" . self::ROUTE_DATA . "?dataset={$dataSet->getUid()}";
+        if(null !== $incrementAttribute = $dataSet->getIncrementValueOfLastRead()) {
+            return $this->buildUrlToFacade(true) . "/{$dataSet->getPWA()->getUrl()}/" . self::ROUTE_DATA . "?dataset={$dataSet->getUid()}&incr={$incrementAttribute}";
+        } else return $this->buildUrlToFacade(true) . "/{$dataSet->getPWA()->getUrl()}/" . self::ROUTE_DATA . "?dataset={$dataSet->getUid()}";
     }
     
     /**

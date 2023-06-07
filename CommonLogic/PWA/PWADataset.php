@@ -12,6 +12,10 @@ use exface\Core\Exceptions\RuntimeException;
 use exface\Core\Interfaces\Model\MetaAttributeInterface;
 use exface\Core\Behaviors\TimeStampingBehavior;
 use exface\Core\DataTypes\ComparatorDataType;
+use exface\Core\DataTypes\DateDataType;
+use exface\Core\DataTypes\DateTimeDataType;
+use exface\Core\DataTypes\TimestampDataType;
+use exface\Core\Factories\ConditionGroupFactory;
 
 class PWADataset implements PWADatasetInterface
 {
@@ -24,6 +28,10 @@ class PWADataset implements PWADatasetInterface
     private $actions =  [];
     
     private $uid = null;
+    
+    private $currentIncrementValue = null;
+    
+    private $lastIncrementValue = null;
     
     public function __construct(PWAInterface $pwa, DataSheetInterface $dataSheet, string $uid = null)
     {
@@ -153,13 +161,61 @@ class PWADataset implements PWADatasetInterface
     public function readData(int $limit = null, int $offset = null, string $incrementValue = null) : DataSheetInterface
     {
         $ds = $this->getDataSheet()->copy();
+        $this->currentIncrementValue = $this->getIncrementValueCurrent();
         
-        if ($incrementValue !== null && null !== $incrementAttr = $this->getIncrementAttribute()) {
-            $ds->getFilters()->addConditionFromAttribute($incrementAttr, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
+        // $incrementValue !== null && 
+        if (null !== $incrementAttr = $this->getIncrementAttribute()) {
+            $group = ConditionGroupFactory::createOR($ds->getMetaObject());
+            $group->addConditionFromAttribute($incrementAttr, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
+            foreach ($ds->getColumns() as $column) {
+                foreach ($column->getExpressionObj()->getRequiredAttributes() as $attrAlias) {
+                    $attr = $ds->getMetaObject()->getAttribute($attrAlias);
+                    if($attr->isRelated()) {
+                        $attrObject = $attr->getObject();
+                        if($this->findIncrementAttribute($attrObject) !== null) {
+                            // usually ZeitAend
+                            $incrementColumnName = $this->findIncrementAttribute($attrObject)->getAlias();
+                        }
+                    }
+                }
+            }
+            $ds->getFilters()->addNestedGroup($group);
         }
-        
         $ds->dataRead($limit, $offset);
         return $ds;
+    }
+    
+    /**
+     * 
+     * @return string|NULL
+     */
+    protected function getIncrementValueCurrent() : ?string
+    {
+        if($this->getIncrementAttribute() === null) {
+            return null;
+        }
+        
+        $type = $this->getIncrementAttribute()->getDataType();
+        switch (true) {
+            case $type instanceof DateDataType:
+                $currentIncrementValue = $type::now();
+                break;
+            case $type instanceof TimestampDataType:
+                $currentIncrementValue = $type::now();
+                break;
+            default: 
+                // TODO DataSheet bauen, um den aktuellen Maximalwert von dem Incr-Attribut (ID) zu bestimmen.
+        }
+        return $currentIncrementValue;
+    }
+    
+    /**
+     * 
+     * @return string
+     */
+    public function getIncrementValueOfLastRead() : ?string
+    {
+        return $this->currentIncrementValue;
     }
     
     /**
@@ -169,7 +225,21 @@ class PWADataset implements PWADatasetInterface
      */
     public function isIncremental() : bool
     {
-        return $this->findIncrementAttribute() !== null;
+        return $this->getIncrementAttribute() !== null;
+    }
+    
+    /**
+     * 
+     * @param MetaObjectInterface $obj
+     * @return MetaAttributeInterface|NULL
+     */
+    protected function findIncrementAttribute(MetaObjectInterface $obj) : ?MetaAttributeInterface
+    {
+        $tsBehavior = $obj->getBehaviors()->getByPrototypeClass(TimeStampingBehavior::class)->getFirst();
+        if ($tsBehavior === null) {
+            return null;
+        }
+        return $tsBehavior->getUpdatedOnAttribute();
     }
     
     /**
@@ -180,10 +250,6 @@ class PWADataset implements PWADatasetInterface
     public function getIncrementAttribute() : ?MetaAttributeInterface
     {
         $obj = $this->getMetaObject();
-        $tsBehavior = $obj->getBehaviors()->getByPrototypeClass(TimeStampingBehavior::class)->getFirst();
-        if ($tsBehavior === null) {
-            return null;
-        }
-        return $tsBehavior->getUpdatedOnAttribute();
+        return $this->findIncrementAttribute($obj);
     }
 }

@@ -21,6 +21,8 @@ use exface\Core\DataTypes\EncryptedDataType;
 use exface\Core\Factories\ConfigurationFactory;
 use exface\Core\Exceptions\EncryptionError;
 use exface\Core\DataTypes\FilePathDataType;
+use exface\Core\Factories\MetaObjectFactory;
+use exface\Core\Interfaces\Log\LoggerInterface;
 
 /**
  * Saves all model entities and eventual custom added data as JSON files in the `Model` subfolder of the app.
@@ -162,8 +164,15 @@ class MetaModelInstaller extends AbstractAppInstaller
         $counter = 0;
         
         // Uninstall additions first as the may depend on the apps model
-        foreach ($this->getAdditions() as $addition) {
+        $additionSheets = $this->getAdditions();
+        $additionSheets = array_reverse($additionSheets);
+        foreach ($additionSheets as $addition) {
             $sheet = $addition['sheet'];
+            
+            if ($sheet->isUnfiltered()) {
+                yield $idt . $idt . 'Cannot uninstall ' . $sheet->getMetaObject()->__toString() . ': data has no app relation!';
+            }
+            
             if ($sheet->hasUIdColumn()) {
                 // Read data to fill the UID column. Some data source do not support deletes via
                 // filter (or filter over relations), so it is safer to fetch the UIDs here.
@@ -178,15 +187,48 @@ class MetaModelInstaller extends AbstractAppInstaller
         }
         
         // Uninstall the main model now
-        foreach ($this->getCoreModelSheets() as $sheet) {
+        // Make sure to load all objects before starting to delete, so that their model
+        // is available at delete time for cascading deletes, etc. If not done so, relations
+        // might get broken because the data sources get removed before the objects and
+        // the objects loose their base attributes. We've had broken self-relations because
+        // an object inherited the UID from a data source base object, which was not present
+        // anymore when the object was loaded.
+        $modelSheets = $this->getCoreModelSheets();
+        $objects = [];
+        foreach ($modelSheets as $sheet) {
             if ($sheet->getMetaObject()->is('exface.Core.APP') === true) {
                 $appSheet = $sheet;
                 $appSheet->dataRead();
-                break;
+                $counter += $appSheet->countRows();
+            }
+            if ($sheet->getMetaObject()->is('exface.Core.OBJECT') === true) {
+                $objectSheet = $sheet;
+                $objectSheet->dataRead();
+                foreach ($objectSheet->getUidColumn()->getValues() as $objectUid) {
+                    try {
+                        $objects[] = MetaObjectFactory::createFromString($this->getWorkbench(), $objectUid);
+                    } catch (\Throwable $e) {
+                        $this->getWorkbench()->getLogger()->logException(new InstallerRuntimeError($this, 'Broken object to be uninstalled: ' . $objectUid, null, $e), LoggerInterface::WARNING);
+                    }
+                }
             }
         }
-        $appSheet->getFilters()->removeAll();
-        $counter += $appSheet->dataDelete($transaction);
+        // Delete all model sheets in reverse order
+        $modelSheets = array_reverse($modelSheets);
+        foreach ($modelSheets as $sheet) {
+            if ($sheet->hasUIdColumn()) {
+                // Read data to fill the UID column. Some data source do not support deletes via
+                // filter (or filter over relations), so it is safer to fetch the UIDs here.
+                $sheet->dataRead();
+                if ($sheet->hasUidColumn(true)) {
+                    $sheet->getFilters()->removeAll();
+                    $counter += $sheet->dataDelete($transaction);
+                }
+            } else {
+                $counter += $sheet->dataDelete($transaction);
+            }
+        }
+        unset($objects);
         
         $transaction->commit();
         
@@ -234,6 +276,10 @@ class MetaModelInstaller extends AbstractAppInstaller
             $ds = $addition['sheet'];
             $subdir = $addition['subfolder'];
             $lastUpdAlias = $addition['lastUpdateAttributeAlias'];
+            
+            if ($ds->isUnfiltered()) {
+                yield $idt . 'Cannot backup ' . $ds->getMetaObject()->__toString() . ': data has no app relation!';
+            }
             
             $ds->dataRead();
             $nr = $additionCnt[$subdir] = ($additionCnt[$subdir] ?? 0) + 1;

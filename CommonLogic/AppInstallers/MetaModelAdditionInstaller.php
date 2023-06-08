@@ -22,7 +22,7 @@ class MetaModelAdditionInstaller extends AbstractAppInstaller
     
     private $appInstalled = null;
     
-    private $appUid = null;
+    private $dataSheets = [];
     
     public function __construct(SelectorInterface $selectorToInstall, InstallerContainerInterface $installerContainer)
     {
@@ -49,28 +49,40 @@ class MetaModelAdditionInstaller extends AbstractAppInstaller
      */
     protected function createModelDataSheet(string $objectSelector, string $appRelationAttribute, string $sorterAttribute, array $excludeAttributeAliases = []) : DataSheetInterface
     {
-        // If the app is not installed yet, we don't know it's UID,
-        // but we also don't need it for this case - so just let it
-        // be NULL.
-        if ($this->appInstalled === null) {
+        $cacheKey = $objectSelector . '::' . $appRelationAttribute . '::' . $sorterAttribute . '::' . implode(',', $excludeAttributeAliases);
+        if (null === $ds = $this->dataSheets[$cacheKey] ?? null) {
+            $ds = DataSheetFactory::createFromObjectIdOrAlias($this->getWorkbench(), $objectSelector);
+            $ds->getSorters()->addFromString($sorterAttribute, SortingDirectionsDataType::ASC);
+            foreach ($ds->getMetaObject()->getAttributeGroup('~WRITABLE')->getAttributes() as $attr) {
+                if (in_array($attr->getAlias(), $excludeAttributeAliases)){
+                    continue;
+                }
+                $ds->getColumns()->addFromExpression($attr->getAlias());
+            }
+            
             try {
-                $this->appUid = $this->getApp()->getUid();
-                $this->appInstalled = true;
+                $appUid = $this->getApp()->getUid();
             } catch (AppNotFoundError $e) {
-                $this->appInstalled = false;
+                $appUid = null;
+            }
+            
+            // It is very important to filter over app UID - otherwise we might uninstall EVERYTHING
+            // when uninstalling an app, that is broken (this actually happened!)
+            // If we know the UID at this moment, cache the sheet in case we are uninstalling and
+            // we will need the sheet again after its model was removed.
+            // If we don't konw the UID, do not cache the sheet - maybe the UID will be already
+            // there next time (e.g. if we need the sheet after the app was installed)
+            if ($appUid !== null) {
+                $ds->getFilters()->addConditionFromString($appRelationAttribute, $appUid, ComparatorDataType::EQUALS);
+                $this->dataSheets[$cacheKey] = $ds;
+            } else {
+                // If we do not have an app UID, make sure the filter NEVER matches anything, so the
+                // installer will not have any effect!
+                $ds->getFilters()->addConditionFromString($appRelationAttribute, '0x0', ComparatorDataType::EQUALS);
             }
         }
         
-        $additionalSheet = DataSheetFactory::createFromObjectIdOrAlias($this->getWorkbench(), $objectSelector);
-        $additionalSheet->getFilters()->addConditionFromString($appRelationAttribute, $this->appUid, ComparatorDataType::EQUALS);
-        $additionalSheet->getSorters()->addFromString($sorterAttribute, SortingDirectionsDataType::ASC);
-        foreach ($additionalSheet->getMetaObject()->getAttributeGroup('~WRITABLE')->getAttributes() as $attr) {
-            if (in_array($attr->getAlias(), $excludeAttributeAliases)){
-                continue;
-            }
-            $additionalSheet->getColumns()->addFromExpression($attr->getAlias());
-        }
-        return $additionalSheet;
+        return $ds->copy();
     }
     
     /**

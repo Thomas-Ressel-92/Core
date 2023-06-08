@@ -4,6 +4,7 @@ namespace exface\Core\Communication\Recipients;
 use exface\Core\Interfaces\UserInterface;
 use exface\Core\Interfaces\Communication\EmailRecipientInterface;
 use exface\Core\Interfaces\Communication\UserRecipientInterface;
+use exface\Core\Interfaces\Communication\RecipientInterface;
 
 class UserRecipient implements UserRecipientInterface, EmailRecipientInterface
 {
@@ -60,7 +61,7 @@ class UserRecipient implements UserRecipientInterface, EmailRecipientInterface
      */
     public function __toString(): string
     {
-        return $this->user->getUsername();
+        return 'user://' . $this->user->getUsername();
     }
     
     /**
@@ -81,5 +82,28 @@ class UserRecipient implements UserRecipientInterface, EmailRecipientInterface
     {
         $this->emailAttributeAlias = $value;
         return $this;
+    }
+    
+    /**
+     * 
+     * {@inheritDoc}
+     * @see \exface\Core\Interfaces\Communication\UserRecipientInterface::isMuted()
+     */
+    public function isMuted() : bool
+    {
+        return $this->getUser()->isDisabledCommunication();
+    }
+    
+    /**
+     *
+     * {@inheritDoc}
+     * @see \exface\Core\Interfaces\Communication\RecipientInterface::is()
+     */
+    public function is(RecipientInterface $otherRecipient): bool
+    {
+        if ($otherRecipient instanceof UserRecipient) {
+            return $this->getUser()->is($otherRecipient->getUser());
+        }
+        return strcasecmp($this->__toString(), $otherRecipient->__toString()) === 0;
     }
 }

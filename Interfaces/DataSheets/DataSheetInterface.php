@@ -331,14 +331,15 @@ interface DataSheetInterface extends WorkbenchDependantInterface, iCanBeCopied, 
      *
      * If no transaction is given, a new transaction will be created an committed at the end of this method
      *
-     * @param DataTransactionInterface $transaction   
+     * @param DataTransactionInterface $transaction
+     * @param bool $cascading
      *          
      * @triggers \exface\Core\Events\DataSheet\OnBeforeDeleteDataEvent
      * @triggers \exface\Core\Events\DataSheet\OnDeleteDataEvent
      * 
      * @return int
      */
-    public function dataDelete(DataTransactionInterface $transaction = null) : int;
+    public function dataDelete(DataTransactionInterface $transaction = null, bool $cascading = true) : int;
 
     /**
      *

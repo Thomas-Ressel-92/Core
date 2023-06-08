@@ -32,7 +32,6 @@ use exface\Core\Interfaces\Model\ModelInterface;
 use exface\Core\Exceptions\Model\MetaObjectHasNoUidAttributeError;
 use exface\Core\Exceptions\Model\MetaRelationBrokenError;
 use exface\Core\Interfaces\UserInterface;
-use exface\Core\Factories\DataSheetFactory;
 use exface\Core\Exceptions\UserNotFoundError;
 use exface\Core\Exceptions\UserNotUniqueError;
 use exface\Core\DataTypes\RelationCardinalityDataType;
@@ -50,7 +49,6 @@ use exface\Core\Interfaces\Model\UiPageInterface;
 use exface\Core\Factories\UiPageFactory;
 use exface\Core\Exceptions\UiPage\UiPageNotFoundError;
 use exface\Core\Factories\SelectorFactory;
-use exface\Core\Interfaces\DataSheets\DataSheetInterface;
 use exface\Core\Interfaces\Selectors\UserSelectorInterface;
 use exface\Core\Factories\UserFactory;
 use exface\Core\Interfaces\Model\CompoundAttributeInterface;
@@ -231,6 +229,10 @@ class SqlModelLoader implements ModelLoaderInterface
         if ($res = $query->getResultArray()) {
             $row = $res[0];
             
+            if ($row['app_alias'] === null) {
+                throw new AppNotFoundError('Corrupted meta object "' . $row['app_alias'] . '" - app "' . $row['app_oid'] . '" not found!');
+            }
+            
             $object->setId($row['oid']);
             $object->setAlias($row['object_alias']);
             $object->setDataSourceId($row['data_source_oid']);
@@ -409,6 +411,9 @@ class SqlModelLoader implements ModelLoaderInterface
                             try {
                                 $leftKeyAttr = $object->getUidAttribute();
                             } catch (MetaObjectHasNoUidAttributeError $e) {
+                                if ($objectUid === $row['object_oid']) {
+                                    throw new MetaRelationBrokenError($object, 'Self-relation "' . $row['attribute_alias'] . '" of object ' . $object->__toString() . ' broken: object has no UID attribute!');
+                                }
                                 try {
                                     $rightObject = $this->getModel()->getObjectById($row['object_oid']);
                                     $error = 'Broken relation "' . $row['attribute_alias'] . '" from ' . $rightObject->getAliasWithNamespace() . ' to ' . $object->getAliasWithNamespace() . ': ' . $e->getMessage();
@@ -1147,39 +1152,6 @@ class SqlModelLoader implements ModelLoaderInterface
     }
     
     /**
-     * 
-     * {@inheritDoc}
-     * @see \exface\Core\Interfaces\DataSources\ModelLoaderInterface::loadUser()
-     */
-    public function loadUser(UserSelectorInterface $selector) : UserInterface
-    {
-        $userMetaObj = $this->getWorkbench()->model()->getObject('exface.Core.USER');
-        $userData = DataSheetFactory::createFromObject($userMetaObj);
-        foreach ($userMetaObj->getAttributes() as $attr) {
-            $userData->getColumns()->addFromAttribute($attr);
-        }
-        if ($selector->isUid() === true) {
-            $userData->getFilters()->addConditionFromString('UID', $selector->toString(), EXF_COMPARATOR_EQUALS);
-        } else {
-            $userData->getFilters()->addConditionFromString('USERNAME', $selector->toString(), EXF_COMPARATOR_EQUALS);
-        }
-        $userData->dataRead();
-        
-        if ($userData->countRows() === 0) {
-            throw new UserNotFoundError('No user with ' . ($selector->isUid() ? 'UID' : 'username') . ' "' . $selector->toString() . '" found!');
-        }
-        
-        if ($userData->countRows() > 1) {
-            throw new UserNotUniqueError('Multiple users with ' . ($selector->isUid() ? 'UID' : 'username') . ' "' . $selector->toString() . '" found!');
-        }
-        
-        $user = UserFactory::createFromModel($this->getWorkbench(), $userData->getCellValue('USERNAME', 0));
-        // load the user right away, because we already have all data - it just needst to be loaded into
-        // the user object.
-        return $this->loadUserData($user, $userData);
-    }
-    
-    /**
      * Builds sql statement selecting and combining the values of given `sqlColumn` matching the `sqlFrom` and `sqlWhere` into one
      * into one, comma seperated, string. 
      * 
@@ -1203,14 +1175,26 @@ SQL;
      * {@inheritDoc}
      * @see \exface\Core\Interfaces\DataSources\ModelLoaderInterface::loadUserData()
      */
-    public function loadUserData(UserInterface $user, DataSheetInterface $userData = null) : UserInterface
+    public function loadUserData($userOrSelector) : UserInterface
     {
-        $groupConcat = $this->buildSqlGroupConcat($this->buildSqlUuidSelector('uru.user_role_oid'), 'exf_user_role_users uru', 'uru.user_oid = u.oid');
-        if ($user->isAnonymous()) {
-            $sqlWhere = "u.oid = " . UserSelector::ANONYMOUS_USER_OID;
+        if ($userOrSelector instanceof UserSelectorInterface) {
+            if ($userOrSelector->isUsername()) {
+                $user = UserFactory::createFromUsername($this->getWorkbench(), $userOrSelector->__toString(), false);
+                return $this->loadUserData($user);
+            } else {
+                $user = null;
+                $sqlWhere = "u.oid = {$userOrSelector->toString()}";
+            }
         } else {
-            $sqlWhere = "u.username = '{$this->buildSqlEscapedString($user->getUsername())}'";
+            $user = $userOrSelector;
+            if ($user->isAnonymous()) {
+                $sqlWhere = "u.oid = " . UserSelector::ANONYMOUS_USER_OID;
+            } else {
+                $sqlWhere = "UPPER(u.username) = '" . $this->buildSqlEscapedString(mb_strtoupper($user->getUsername())) . "'";
+            }
         }
+        $groupConcat = $this->buildSqlGroupConcat($this->buildSqlUuidSelector('uru.user_role_oid'), 'exf_user_role_users uru', 'uru.user_oid = u.oid');
+        
         $sql = <<<SQL
 -- Load user
 SELECT
@@ -1232,23 +1216,36 @@ SQL;
                 throw new UserNotFoundError('No user "' . $user->getUsername() . '" exists in the metamodel.');
             case 1:
                 $row = $rows[0];
-                $user->setUid($row['oid']);
-                $user->setLocale($row['locale']);
-                $user->setFirstName($row['first_name']);
-                $user->setLastName($row['last_name']);
-                $user->setEmail($row['email']);
-                $user->setDisabled(BooleanDataType::cast($row['disabled_flag']) ?? false);
-                if ($row['password'] !== null) {
-                    $user->setPassword($row['password']);
-                }
-                if ($row['role_oids']) {
-                    foreach (explode(',', rtrim($row['role_oids'], ",")) as $roleUid) {
-                        $user->addRoleSelector($roleUid);
-                    }
-                }
                 break;
             default:
                 throw new UserNotUniqueError('More than one user exist in the metamodel for username "' . $user->getUsername() . '".');
+        }
+        
+        if ($user === null) {
+            $user = UserFactory::createFromUsername($this->getWorkbench(), $row['username'], false);
+        }
+        
+        // Make sure, the username is exactly as it is saved in the DB - even if the user typed it in different
+        // case when logging in!
+        $user->setUsername($row['username']);
+        
+        // Set other user properties
+        $user->setUid($row['oid']);
+        $user->setLocale($row['locale']);
+        $user->setFirstName($row['first_name']);
+        $user->setLastName($row['last_name']);
+        $user->setEmail($row['email']);
+        $user->setDisabled(BooleanDataType::cast($row['disabled_flag']) ?? false);
+        if ($row['password'] !== null) {
+            $user->setPassword($row['password']);
+        }
+        if ($row['disabled_communication_flag'] !== null) {
+            $user->setDisabledCommunication($row['disabled_communication_flag']);
+        }
+        if ($row['role_oids']) {
+            foreach (explode(',', rtrim($row['role_oids'], ",")) as $roleUid) {
+                $user->addRoleSelector($roleUid);
+            }
         }
         
         return $user;
@@ -1920,6 +1917,7 @@ SQL;
     public function loadApp($appOrSelector) : AppInterface
     {
         if ($this->apps_loaded === null) {
+            $freshLoad = true;
             $sql = <<<SQL
 -- Load app
 SELECT {$this->buildSqlUuidSelector('oid')} AS UID, app_alias AS ALIAS, app_name AS NAME, default_language_code AS DEFAULT_LANGUAGE_CODE
@@ -1927,6 +1925,8 @@ SELECT {$this->buildSqlUuidSelector('oid')} AS UID, app_alias AS ALIAS, app_name
 SQL;
             $result = $this->getDataConnection()->runSql($sql);
             $this->apps_loaded = $result->getResultArray();
+        } else {
+            $freshLoad = false;
         }
         
         if ($appOrSelector instanceof AppSelectorInterface) {
@@ -1948,6 +1948,12 @@ SQL;
             }
         });
         if (empty($rows)) {
+            // If the app is not found, refresh the cache in case it was just installed
+            // (after the cache was read)
+            if ($freshLoad === false) {
+                $this->apps_loaded = null;
+                return $this->loadApp($appOrSelector);
+            }
             throw new AppNotFoundError('App "' . $selector->toString() . '" not found in meta model!');
         }
         $row = reset($rows);

@@ -88,7 +88,9 @@ class PWAapiFacade extends HttpTaskFacade
                         'uid' => $dataSet->getUid(),
                         'object_alias' => $dataSet->getMetaObject()->getAliasWithNamespace(),
                         'object_name' => $dataSet->getMetaObject()->getName(),
-                        'url' => $this->buildUrlToGetOfflineData($dataSet, $pwa)
+                        'url' => $this->buildUrlToGetOfflineData($dataSet),
+                        'columns_with_download_urls' => $dataSet->getBinaryDataTypeColumnNames(),
+                        'columns_with_image_urls' => $dataSet->getImageUrlDataTypeColumnNames()
                     ];
                 }
                 $headers = array_merge($headers, ['Content-Type' => 'application/json']);
@@ -134,7 +136,6 @@ class PWAapiFacade extends HttpTaskFacade
                         'version' => $pwa->getVersion(),
                         'increment_column_name' => ($dataSet->isIncremental() ? $ds->getColumns()->getByAttribute($dataSet->getIncrementAttribute())->getName() : null),
                         'increment_value' => $currentReadIncrementValue
-                        
                     ];
                     $result = array_merge($result, $ds->exportUxonObject()->toArray());
                     
@@ -235,17 +236,6 @@ class PWAapiFacade extends HttpTaskFacade
         if(null !== $incrementAttribute = $dataSet->getIncrementValueOfLastRead()) {
             return $this->buildUrlToFacade(true) . "/{$dataSet->getPWA()->getUrl()}/" . self::ROUTE_DATA . "?dataset={$dataSet->getUid()}&incr={$incrementAttribute}";
         } else return $this->buildUrlToFacade(true) . "/{$dataSet->getPWA()->getUrl()}/" . self::ROUTE_DATA . "?dataset={$dataSet->getUid()}";
-    }
-    
-    /**
-     * Old formatting of routes
-     * api/pwa/<pwaUrl>/data/<dataSetUid>
-     * @param PWADatasetInterface $dataSet
-     * @return string
-     */
-    protected function buildUrlToGetOfflineDataDeprecated(PWADatasetInterface $dataSet) : string
-    {
-        return $this->buildUrlToFacade(true) . "/{$dataSet->getPWA()->getUrl()}/" . self::ROUTE_DATA . "/{$dataSet->getUid()}";
     }
     
     /**

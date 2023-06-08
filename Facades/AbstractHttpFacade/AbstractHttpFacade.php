@@ -108,7 +108,7 @@ abstract class AbstractHttpFacade extends AbstractFacade implements HttpFacadeIn
             }
             
             $this->getWorkbench()->getLogger()->logException($e);
-            $response = $this->createResponseFromError($request, $e);
+            $response = $this->createResponseFromError($e, $request);
         }
         
         return $response;
@@ -212,17 +212,27 @@ abstract class AbstractHttpFacade extends AbstractFacade implements HttpFacadeIn
     /**
      * Creates and returns an HTTP response from the given exception.
      *
-     * @param ServerRequestInterface $request
      * @param \Throwable $exception
+     * @param ServerRequestInterface|NULL $request
      * 
      * @return ResponseInterface
      */
-    protected function createResponseFromError(ServerRequestInterface $request, \Throwable $exception) : ResponseInterface
+    protected function createResponseFromError(\Throwable $exception, ServerRequestInterface $request = null) : ResponseInterface
     {
         $code = ($exception instanceof ExceptionInterface) ? $exception->getStatusCode() : 500;
+        $headers = $this->buildHeadersCommon();
         if ($this->getWorkbench()->getSecurity()->getAuthenticatedToken()->isAnonymous()) {
-            return new Response($code);
+            return new Response($code, $headers);
         }
-        return new Response($code, [], $exception->getMessage());
+        return new Response($code, $headers, $exception->getMessage());
+    }
+    
+    /**
+     * 
+     * @return array
+     */
+    protected function buildHeadersCommon() : array
+    {
+        return [];
     }
 }

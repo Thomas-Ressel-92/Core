@@ -172,10 +172,37 @@ class PWADataset implements PWADatasetInterface
                     $attr = $ds->getMetaObject()->getAttribute($attrAlias);
                     if($attr->isRelated()) {
                         $attrObject = $attr->getObject();
+                        // find incrementAttribute of end objects of relations
                         if($this->findIncrementAttribute($attrObject) !== null) {
                             // usually ZeitAend
                             $incrementColumnName = $this->findIncrementAttribute($attrObject)->getAlias();
                         }
+                        //find incrementAttribute of every related object left from the end object
+                        $relationsArray = [];
+                        $incrementArray = [];
+                        
+                        $relations = $attr->getRelationPath()->getRelations();
+                        foreach($relations as $relation) {
+                            // get object that has no further right objects next to it
+                            if($relation->getAlias() === $relation->getrightObject()->getAlias()) {
+                                $alias = $relation->getAlias();
+                                if(! array_key_exists($alias, $relationsArray)) {
+                                    array_push($relationsArray, $alias);
+                                }
+                            }
+                            
+                            // get incrementColumnName of next left object of the relation
+                            $object = $relation->getLeftObject();
+                            $incrementColumnName = $this->findIncrementAttribute($object)->getAlias();
+                            // fill incrementArray with incrementColumnNames of the relations
+                            $alias = $relation->getLeftObject()->getAlias();
+                            $incrementArray[$alias] = $incrementColumnName;
+                            
+                            // fill relationsArray with processed relations to avoid duplicate iterations
+                            if(! array_key_exists($alias, $relationsArray)) {
+                                array_push($relationsArray, $alias);
+                            }
+                        }  
                     }
                 }
             }

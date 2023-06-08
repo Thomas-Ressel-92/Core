@@ -179,30 +179,31 @@ class PWADataset implements PWADatasetInterface
                         }
                         //find incrementAttribute of every related object left from the end object
                         $relationsArray = [];
-                        $incrementArray = [];
+                        $processedArray = [];
                         
                         $relations = $attr->getRelationPath()->getRelations();
                         foreach($relations as $relation) {
-                            // get object that has no further right objects next to it
+                            
+                            $leftAlias = $relation->getLeftObject()->getAlias();
+                            $rightAlias = $relation->getRightObject()->getAlias();
+                            
+                            if(! array_key_exists($leftAlias, $processedArray)) {
+                                $leftObject = $relation->getLeftObject();
+                                $leftIncrementColumnName = $this->findIncrementAttribute($leftObject)->getAlias();
+                                $relationsArray[$leftAlias] = $leftIncrementColumnName;
+                                array_push($processedArray, $leftAlias);
+                            }
+                            
                             if($relation->getAlias() === $relation->getrightObject()->getAlias()) {
-                                $alias = $relation->getAlias();
-                                if(! array_key_exists($alias, $relationsArray)) {
-                                    array_push($relationsArray, $alias);
+                                if(! array_key_exists($rightAlias, $processedArray)) {
+                                    $rightObject = $relation->getLeftObject();
+                                    $rightIncrementColumnName = $this->findIncrementAttribute($rightObject)->getAlias();
+                                    $relationsArray[$rightAlias] = $rightIncrementColumnName;
+                                    array_push($processedArray, $rightAlias);
                                 }
                             }
-                            
-                            // get incrementColumnName of next left object of the relation
-                            $object = $relation->getLeftObject();
-                            $incrementColumnName = $this->findIncrementAttribute($object)->getAlias();
-                            // fill incrementArray with incrementColumnNames of the relations
-                            $alias = $relation->getLeftObject()->getAlias();
-                            $incrementArray[$alias] = $incrementColumnName;
-                            
-                            // fill relationsArray with processed relations to avoid duplicate iterations
-                            if(! array_key_exists($alias, $relationsArray)) {
-                                array_push($relationsArray, $alias);
-                            }
                         }  
+                        $relationsArray = $relationsArray;
                     }
                 }
             }

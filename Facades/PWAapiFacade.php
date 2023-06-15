@@ -20,6 +20,7 @@ use exface\Core\Interfaces\PWA\PWADatasetInterface;
 use exface\Core\Exceptions\PWA\PWANotFoundError;
 use exface\Core\Interfaces\Log\LoggerInterface;
 use exface\Core\Exceptions\Facades\HttpBadRequestError;
+use exface\Core\Formulas\DateTime;
 
 /**
  * 
@@ -126,8 +127,7 @@ class PWAapiFacade extends HttpTaskFacade
                 try {
                     $dataSet = $pwa->getDataset($dataSetUid);
                     $ds = $dataSet->readData();
-                    // Current because it is updated in readData method
-                    $currentReadIncrementValue = ($dataSet->isIncremental() ? $dataSet->getIncrementValueOfLastRead() : null);
+                    
                     $result = [
                         'uid' => $dataSetUid,
                         'status' => 'fresh',
@@ -135,7 +135,7 @@ class PWAapiFacade extends HttpTaskFacade
                         'username' => $this->getWorkbench()->getSecurity()->getAuthenticatedToken()->getUsername(),
                         'version' => $pwa->getVersion(),
                         'increment_column_name' => ($dataSet->isIncremental() ? $ds->getColumns()->getByAttribute($dataSet->getIncrementAttribute())->getName() : null),
-                        'increment_value' => $currentReadIncrementValue
+                        'increment_value' => ($dataSet->isIncremental() ? $dataSet->getIncrementValueOfLastRead() : null)
                     ];
                     $result = array_merge($result, $ds->exportUxonObject()->toArray());
                     
@@ -231,7 +231,7 @@ class PWAapiFacade extends HttpTaskFacade
      * @param PWADatasetInterface $dataSet
      * @return string
      */
-    protected function buildUrlToGetOfflineData(PWADatasetInterface $dataSet, $pwa) : string
+    protected function buildUrlToGetOfflineData(PWADatasetInterface $dataSet) : string
     {
         if(null !== $incrementAttribute = $dataSet->getIncrementValueOfLastRead()) {
             return $this->buildUrlToFacade(true) . "/{$dataSet->getPWA()->getUrl()}/" . self::ROUTE_DATA . "?dataset={$dataSet->getUid()}&incr={$incrementAttribute}";

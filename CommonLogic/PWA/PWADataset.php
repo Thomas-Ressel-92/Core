@@ -189,26 +189,37 @@ class PWADataset implements PWADatasetInterface
     {
         $ds = $this->getDataSheet()->copy();
         $this->currentIncrementValue = $this->getIncrementValueCurrent();
+        $incrementValue = DateTimeDataType::now();
         
-        // $incrementValue !== null && 
-        if (null !== $incrementAttr = $this->getIncrementAttribute()) {
-            $group = ConditionGroupFactory::createOR($ds->getMetaObject());
-            $group->addConditionFromAttribute($incrementAttr, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
-            foreach ($ds->getColumns() as $column) {
-                foreach ($column->getExpressionObj()->getRequiredAttributes() as $attrAlias) {
-                    $attr = $ds->getMetaObject()->getAttribute($attrAlias);
-                    if($attr->isRelated()) {
-                        $attrObject = $attr->getObject();
-                        // find incrementAttribute of end objects of relations
-                        if($this->findIncrementAttribute($attrObject) !== null) {
-                            // usually ZeitAend
-                            $incrementColumnName = $this->findIncrementAttribute($attrObject)->getAlias();
+        if ($incrementValue !== null) {
+            // find incrementAttribute of DataSheet
+            if(null !== $incrementAttr = $this->getIncrementAttribute()) {
+                // filter read data by incrementAttribute of DataSheet
+                $group = ConditionGroupFactory::createOR($ds->getMetaObject());
+                $group->addConditionFromAttribute($incrementAttr, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
+            }
+                foreach ($ds->getColumns() as $column) {
+                    $relationsArray = [];
+                    foreach ($column->getExpressionObj()->getRequiredAttributes() as $attrAlias) {
+                        $attr = $ds->getMetaObject()->getAttribute($attrAlias);
+                        if($attr->isRelated()) {
+                            $attrObject = $attr->getObject();
+                            // find incrementAttribute of end object of relation
+                            // e.g. from Artikelstamm of LagerQuant__Artikelstamm 
+                            if($this->findIncrementAttribute($attrObject) !== null) {
+                                // usually ZeitAend
+                                $incrementRelationAttribute = $this->findIncrementAttribute($attrObject);
+                                $alias = $attrObject->getAlias();
+                                $relationsArray[$attrObject->getAlias()] = $incrementRelationAttribute->getAlias();
+                                // filter read data by incrementAttribute of end object of relation
+                                $group->addConditionFromAttribute($incrementRelationAttribute, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
+                            }
                         }
+
                         //find incrementAttribute of every related object left from the end object
-                        $relationsArray = [];
+                        $relations = $attr->getRelationPath()->getRelations();
                         $processedArray = [];
                         
-                        $relations = $attr->getRelationPath()->getRelations();
                         foreach($relations as $relation) {
                             
                             $leftAlias = $relation->getLeftObject()->getAlias();
@@ -216,16 +227,18 @@ class PWADataset implements PWADatasetInterface
                             
                             if(! array_key_exists($leftAlias, $processedArray)) {
                                 $leftObject = $relation->getLeftObject();
-                                $leftIncrementColumnName = $this->findIncrementAttribute($leftObject)->getAlias();
-                                $relationsArray[$leftAlias] = $leftIncrementColumnName;
+                                $leftIncrementRelationAttribute = $this->findIncrementAttribute($leftObject)->getAlias();
+                                $relationsArray[$leftAlias] = $leftIncrementRelationAttribute;
+                                $group->addConditionFromAttribute($leftIncrementRelationAttribute, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
                                 array_push($processedArray, $leftAlias);
                             }
                             
                             if($relation->getAlias() === $relation->getrightObject()->getAlias()) {
                                 if(! array_key_exists($rightAlias, $processedArray)) {
                                     $rightObject = $relation->getLeftObject();
-                                    $rightIncrementColumnName = $this->findIncrementAttribute($rightObject)->getAlias();
-                                    $relationsArray[$rightAlias] = $rightIncrementColumnName;
+                                    $rightIncrementRelationAttribute = $this->findIncrementAttribute($rightObject)->getAlias();
+                                    $relationsArray[$rightAlias] = $rightIncrementRelationAttribute;
+                                    $group->addConditionFromAttribute($rightIncrementRelationAttribute, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
                                     array_push($processedArray, $rightAlias);
                                 }
                             }
@@ -235,8 +248,7 @@ class PWADataset implements PWADatasetInterface
                 }
             }
             $ds->getFilters()->addNestedGroup($group);
-        }
-        $ds->dataRead($limit, $offset);
+            $ds->dataRead($limit, $offset);
         return $ds;
     }
     

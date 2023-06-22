@@ -126,7 +126,10 @@ class PWAapiFacade extends HttpTaskFacade
 
                 try {
                     $dataSet = $pwa->getDataset($dataSetUid);
-                    $ds = $dataSet->readData();
+                    $incrementValue = DateTimeDataType::now();
+                    $lastIncrementValue = $dataSet->getIncrementValueOfLastRead();
+                    $ds = $dataSet->readData($limit = null, $offset = null, $incrementValue);
+                    $test2 = $dataSet->isIncremental() ? $ds->getColumns()->getByAttribute($dataSet->getIncrementAttribute())->getName() : null;
                     
                     $result = [
                         'uid' => $dataSetUid,
@@ -138,21 +141,6 @@ class PWAapiFacade extends HttpTaskFacade
                         'increment_value' => ($dataSet->isIncremental() ? $dataSet->getIncrementValueOfLastRead() : null)
                     ];
                     $result = array_merge($result, $ds->exportUxonObject()->toArray());
-                    
-                    // Filter resulting rows based on "incr" query parameter (last read before current readData call) if it is set and $currentReadIncrementValue
-                    if (array_key_exists("incr", $request->getQueryParams())) {
-                        $incr = $request->getQueryParams()['incr'];
-                        $filteredRowArray = [];
-                        foreach($result["rows"] as $rowElement) {
-                            // usually "ZeitAend"
-                            $incrementAttributeAlias = $dataSet->getIncrementAttribute()->getAlias();
-                            // Checks if incrementValue is within query parameter "incr" and $currentReadIncrementValue
-                            if ($rowElement[$incrementAttributeAlias] >= $incr && $rowElement[$incrementAttributeAlias] <= $currentReadIncrementValue) {
-                                array_push($filteredRowArray, $rowElement);
-                            }
-                        }
-                        $result["rows"] = $filteredRowArray;
-                    }
 
                 } catch (PWADatasetNotFoundError $e) {
                     $this->getWorkbench()->getLogger()->logException($e, LoggerInterface::DEBUG);

@@ -394,6 +394,7 @@ abstract class AbstractPWA implements PWAInterface
         // Data sets
         $dsDatasets = $this->getDataForDatasets();
         $newDataSets = $dsDatasets->copy()->removeRows();
+        /* @var $set \exface\Core\Interfaces\PWA\PWADatasetInterface */
         foreach ($this->getDatasets() as $set) {
             $dataSheetJson = $set->getDataSheet()->exportUxonObject()->toJson();
             if (false !== $rowIdx = $dsDatasets->getColumns()->get('DATA_SHEET_UXON')->findRowByValue($dataSheetJson)) {
@@ -413,7 +414,8 @@ abstract class AbstractPWA implements PWAInterface
                 'OBJECT' => $set->getMetaObject()->getId(),
                 'DATA_SHEET_UXON' => $set->getDataSheet()->exportUxonObject()->toJson($dataSheetJson),
                 'USER_DEFINED_FLAG' => 0,
-                'ROWS_AT_GENERATION_TIME' => $rowCnt
+                'ROWS_AT_GENERATION_TIME' => $rowCnt,
+                'INCREMENTAL_SYNC_VIA_ATTRIBUTE_ALIAS' => $set->isIncremental() ? $set->getIncrementAttribute()->getAliasWithRelationPath() : false
             ]), false, false);
         }
         yield 'Generated ' . $newDataSets->countRows() . ' offline data sets' . PHP_EOL;

@@ -189,69 +189,42 @@ class PWADataset implements PWADatasetInterface
     {
         $ds = $this->getDataSheet()->copy();
         $this->currentIncrementValue = $this->getIncrementValueCurrent();
-        $incrementValue = DateTimeDataType::now();
         
-        if ($incrementValue !== null) {
-            // find incrementAttribute of DataSheet
-            if(null !== $incrementAttr = $this->getIncrementAttribute()) {
+        // find incrementAttribute of DataSheet
+        if ($incrementValue !== null && null !== $incrementAttr = $this->getIncrementAttribute()) {
                 // filter read data by incrementAttribute of DataSheet
                 $group = ConditionGroupFactory::createOR($ds->getMetaObject());
                 $group->addConditionFromAttribute($incrementAttr, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
-            }
+                
+                $relationsArray = [];
                 foreach ($ds->getColumns() as $column) {
-                    $relationsArray = [];
                     foreach ($column->getExpressionObj()->getRequiredAttributes() as $attrAlias) {
                         $attr = $ds->getMetaObject()->getAttribute($attrAlias);
-                        if($attr->isRelated()) {
-                            $attrObject = $attr->getObject();
-                            // find incrementAttribute of end object of relation
-                            // e.g. from Artikelstamm of LagerQuant__Artikelstamm 
-                            if($this->findIncrementAttribute($attrObject) !== null) {
-                                // usually ZeitAend
-                                $incrementRelationAttribute = $this->findIncrementAttribute($attrObject);
-                                $alias = $attrObject->getAlias();
-                                $relationsArray[$attrObject->getAlias()] = $incrementRelationAttribute->getAlias();
-                                // filter read data by incrementAttribute of end object of relation
-                                $group->addConditionFromAttribute($incrementRelationAttribute, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
-                            }
-                        }
-
-                        //find incrementAttribute of every related object left from the end object
-                        $relations = $attr->getRelationPath()->getRelations();
-                        $processedArray = [];
                         
-                        foreach($relations as $relation) {
+                        if($attr->isRelated()) {
+                            //find incrementAttribute of every related object of the attribute
+                            $relations = $attr->getRelationPath()->getRelations();
+                            $processedArray = [];
                             
-                            $leftAlias = $relation->getLeftObject()->getAlias();
-                            $rightAlias = $relation->getRightObject()->getAlias();
-                            
-                            if(! array_key_exists($leftAlias, $processedArray)) {
-                                $leftObject = $relation->getLeftObject();
-                                $leftIncrementRelationAttribute = $this->findIncrementAttribute($leftObject)->getAlias();
-                                $relationsArray[$leftAlias] = $leftIncrementRelationAttribute;
-                                $group->addConditionFromAttribute($leftIncrementRelationAttribute, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
-                                array_push($processedArray, $leftAlias);
-                            }
-                            
-                            if($relation->getAlias() === $relation->getrightObject()->getAlias()) {
-                                if(! array_key_exists($rightAlias, $processedArray)) {
-                                    $rightObject = $relation->getLeftObject();
-                                    $rightIncrementRelationAttribute = $this->findIncrementAttribute($rightObject)->getAlias();
-                                    $relationsArray[$rightAlias] = $rightIncrementRelationAttribute;
+                            foreach($relations as $relation) {
+                                if(! array_key_exists($rightObjectAlias = $relation->getRightObject()->getAlias(), $processedArray)) {
+                                    $rightIncrementRelationAttribute = $this->findIncrementAttribute($relation->getRightObject());
+                                    $relationsArray[$rightObjectAlias] = $rightIncrementRelationAttribute;
                                     $group->addConditionFromAttribute($rightIncrementRelationAttribute, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
-                                    array_push($processedArray, $rightAlias);
+                                    // add processed rightObjectAlias to array so that element is only processed once per read
+                                    array_push($processedArray, $rightObjectAlias);
                                 }
-                            }
-                        }  
-                        $relationsArray = $relationsArray;
+                            } 
+                        }
                     }
                 }
-            }
-            $ds->getFilters()->addNestedGroup($group);
-            $ds->dataRead($limit, $offset);
+                $relationsArray = $relationsArray;
+                $ds->getFilters()->addNestedGroup($group);
+                $ds->dataRead($limit, $offset);
+            }  
         return $ds;
     }
-    
+
     /**
      * 
      * @return string|NULL
@@ -303,7 +276,7 @@ class PWADataset implements PWADatasetInterface
     protected function findIncrementAttribute(MetaObjectInterface $obj) : ?MetaAttributeInterface
     {
         $tsBehavior = $obj->getBehaviors()->getByPrototypeClass(TimeStampingBehavior::class)->getFirst();
-        if ($tsBehavior === null) {
+        if ($tsBehavior === null  || $tsBehavior->isDisabled()) {
             return null;
         }
         return $tsBehavior->getUpdatedOnAttribute();

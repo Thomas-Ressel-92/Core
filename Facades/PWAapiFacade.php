@@ -127,9 +127,11 @@ class PWAapiFacade extends HttpTaskFacade
                 try {
                     $dataSet = $pwa->getDataset($dataSetUid);
                     $incrementValue = DateTimeDataType::now();
-                    $lastIncrementValue = $dataSet->getIncrementValueOfLastRead();
+                    $ds = $dataSet->readData();
+                    // * @var $ds \exface\Core\CommonLogic\DataSheets\DataSheet
+                    $data = $ds->getColumns();
+                    
                     $ds = $dataSet->readData($limit = null, $offset = null, $incrementValue);
-                    $test2 = $dataSet->isIncremental() ? $ds->getColumns()->getByAttribute($dataSet->getIncrementAttribute())->getName() : null;
                     
                     $result = [
                         'uid' => $dataSetUid,

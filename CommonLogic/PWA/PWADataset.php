@@ -32,8 +32,6 @@ class PWADataset implements PWADatasetInterface
 
     private $currentIncrementValue = null;
     
-    private $lastIncrementValue = null;
-    
     /**
      * 
      * @param PWAInterface $pwa
@@ -190,9 +188,9 @@ class PWADataset implements PWADatasetInterface
         $ds = $this->getDataSheet()->copy();
         $this->currentIncrementValue = $this->getIncrementValueCurrent();
         
-        // find incrementAttribute of DataSheet
+        // find incrementAttribute of dataSheet
         if ($incrementValue !== null && null !== $incrementAttr = $this->getIncrementAttribute()) {
-                // filter read data by incrementAttribute of DataSheet
+                // filter read data by incrementAttribute of dataSheet
                 $group = ConditionGroupFactory::createOR($ds->getMetaObject());
                 $group->addConditionFromAttribute($incrementAttr, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
                 
@@ -209,8 +207,10 @@ class PWADataset implements PWADatasetInterface
                             foreach($relations as $relation) {
                                 if(! array_key_exists($rightObjectAlias = $relation->getRightObject()->getAlias(), $processedArray)) {
                                     $rightIncrementRelationAttribute = $this->findIncrementAttribute($relation->getRightObject());
-                                    $relationsArray[$rightObjectAlias] = $rightIncrementRelationAttribute;
-                                    $group->addConditionFromAttribute($rightIncrementRelationAttribute, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
+                                    if($rightIncrementRelationAttribute !== null) {
+                                        $relationsArray[$rightObjectAlias] = $rightIncrementRelationAttribute;
+                                        $group->addConditionFromAttribute($rightIncrementRelationAttribute, $incrementValue, ComparatorDataType::GREATER_THAN_OR_EQUALS);
+                                    }
                                     // add processed rightObjectAlias to array so that element is only processed once per read
                                     array_push($processedArray, $rightObjectAlias);
                                 }
@@ -218,6 +218,7 @@ class PWADataset implements PWADatasetInterface
                         }
                     }
                 }
+                //Placeholder
                 $relationsArray = $relationsArray;
                 $ds->getFilters()->addNestedGroup($group);
                 $ds->dataRead($limit, $offset);

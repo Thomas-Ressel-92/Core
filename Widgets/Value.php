@@ -324,6 +324,14 @@ class Value extends AbstractWidget implements iShowSingleAttribute, iHaveValue, 
                 case $this->isBoundToAttribute():
                     $this->data_type = ExpressionFactory::createFromString($this->getWorkbench(), $this->getAttributeAlias(), $this->getMetaObject())->getDataType();
                     break;
+                case $expr && $expr->isReference():                    
+                    $target = $expr->getWidgetLink($this)->getTargetWidget();
+                    if ($target instanceof iHaveValue) {
+                        $this->data_type = $target->getValueDataType();
+                    } else {
+                        $this->data_type = DataTypeFactory::createBaseDataType($this->getWorkbench());
+                    }
+                    break;
                 case $expr:
                     $this->data_type = $expr->getDataType();
                     break;
@@ -336,7 +344,10 @@ class Value extends AbstractWidget implements iShowSingleAttribute, iHaveValue, 
     }
     
     /**
-     * Changes the data type of the value to one of the
+     * Changes the data type of the value to one of the (MUST be defined AFTER value!)
+     * 
+     * CAUTION: if you set both `value_data_type` AND `value`, the former MUST be defined
+     * after the `value` because setting the value will automatically recompute the data type.
      *
      * @uxon-property value_data_type
      * @uxon-type \exface\Core\CommonLogic\DataTypes\AbstractDataType|metamodel:datatype

@@ -127,12 +127,11 @@ class PWAapiFacade extends HttpTaskFacade
                 try {
                     $dataSet = $pwa->getDataset($dataSetUid);
                     $incrementValue = DateTimeDataType::now();
-                    $ds = $dataSet->readData();
-                    // * @var $ds \exface\Core\CommonLogic\DataSheets\DataSheet
-                    $data = $ds->getColumns();
+                    $value2 = "2023-06-26 16:00:15";
                     
-                    $ds = $dataSet->readData($limit = null, $offset = null, $incrementValue);
-                    
+                    //$ds = $dataSet->readData();
+                    $ds = $dataSet->readData($limit = null, $offset = null, $value2);
+
                     $result = [
                         'uid' => $dataSetUid,
                         'status' => 'fresh',

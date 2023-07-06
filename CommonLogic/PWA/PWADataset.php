@@ -13,7 +13,6 @@ use exface\Core\Interfaces\Model\MetaAttributeInterface;
 use exface\Core\Behaviors\TimeStampingBehavior;
 use exface\Core\DataTypes\ComparatorDataType;
 use exface\Core\DataTypes\DateDataType;
-use exface\Core\DataTypes\DateTimeDataType;
 use exface\Core\DataTypes\TimestampDataType;
 use exface\Core\Factories\ConditionGroupFactory;
 use exface\Core\DataTypes\ImageUrlDataType;
@@ -127,11 +126,21 @@ class PWADataset implements PWADatasetInterface
         return $this;
     }
 
+    /**
+     * 
+     * {@inheritDoc}
+     * @see \exface\Core\Interfaces\PWA\PWADatasetInterface::getMetaObject()
+     */
     public function getMetaObject(): MetaObjectInterface
     {
         return $this->dataSheet->getMetaObject();
     }
     
+    /**
+     * 
+     * @param ActionInterface $action
+     * @return PWADatasetInterface
+     */
     public function addAction(ActionInterface $action) : PWADatasetInterface
     {
         $this->actions[] = $action;
